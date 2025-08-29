@@ -46,20 +46,36 @@ jobs:
     - name: Check if version needs update
       id: version_check
       run: |
-        VERSION_FILE="fcl/releases.txt"
         latest_version="${{ steps.release.outputs.latest_version }}"
         
-        if [ -f "$VERSION_FILE" ]; then
-          current_version=$(cat "$VERSION_FILE")
-          if [ "$current_version" == "$latest_version" ]; then
-            echo "当前已是最新版本 ($latest_version)，跳过下载"
-            echo "needs_update=false" >> $GITHUB_OUTPUT
+        # 检查latest分支是否存在并切换到该分支读取版本文件
+        if git show-ref --verify --quiet refs/remotes/origin/latest; then
+          echo "切换到latest分支检查版本..."
+          git checkout latest
+          git pull origin latest
+          
+          VERSION_FILE="fcl/releases.txt"
+          if [ -f "$VERSION_FILE" ]; then
+            current_version=$(cat "$VERSION_FILE")
+            echo "读取到当前版本: $current_version"
+            echo "最新版本: $latest_version"
+            
+            if [ "$current_version" == "$latest_version" ]; then
+              echo "当前已是最新版本 ($latest_version)，跳过下载"
+              echo "needs_update=false" >> $GITHUB_OUTPUT
+            else
+              echo "检测到新版本: $latest_version (当前版本: $current_version)"
+              echo "needs_update=true" >> $GITHUB_OUTPUT
+            fi
           else
-            echo "检测到新版本: $latest_version (当前版本: $current_version)"
+            echo "latest分支存在但未找到版本记录文件"
             echo "needs_update=true" >> $GITHUB_OUTPUT
           fi
+          
+          # 切换回主分支继续后续操作
+          git checkout ${{ github.ref_name }}
         else
-          echo "未找到版本记录，开始下载最新版本 ($latest_version)"
+          echo "latest分支不存在，开始下载最新版本 ($latest_version)"
           echo "needs_update=true" >> $GITHUB_OUTPUT
         fi
 
