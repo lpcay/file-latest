@@ -136,37 +136,12 @@ jobs:
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
 
-    - name: Delete existing FCL release
+    - name: Create/Update GitHub Release
       if: steps.version_check.outputs.needs_update == 'true'
-      run: |
-        # 尝试删除现有的FCL release和tag
-        echo "检查并删除现有的FCL release..."
-        
-        # 获取release ID
-        release_id=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-          "https://api.github.com/repos/${{ github.repository }}/releases/tags/FCL" | \
-          jq -r '.id // empty')
-        
-        if [ ! -z "$release_id" ] && [ "$release_id" != "null" ]; then
-          echo "删除现有release (ID: $release_id)"
-          curl -X DELETE -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/${{ github.repository }}/releases/$release_id"
-        fi
-        
-        # 删除tag
-        echo "删除现有tag FCL"
-        curl -X DELETE -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-          "https://api.github.com/repos/${{ github.repository }}/git/refs/tags/FCL" || true
-
-    - name: Create GitHub Release
-      if: steps.version_check.outputs.needs_update == 'true'
-      id: create_release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      uses: softprops/action-gh-release@v1
       with:
         tag_name: FCL
-        release_name: ${{ steps.release.outputs.latest_version }}
+        name: ${{ steps.release.outputs.latest_version }}
         body: |
           FCL (FoldCraftLauncher) 版本 ${{ steps.release.outputs.latest_version }}
           
@@ -178,27 +153,13 @@ jobs:
           - FCL-release-armeabi-v7a.apk - ARM32架构  
           - FCL-release-x86.apk - x86架构
           - FCL-release-x86_64.apk - x86_64架构
+        files: |
+          fcl/*.apk
         draft: false
         prerelease: false
-
-    - name: Upload APK files to Release
-      if: steps.version_check.outputs.needs_update == 'true'
-      run: |
-        # 上传所有APK文件到Release
-        for apk_file in fcl/*.apk; do
-          if [ -f "$apk_file" ]; then
-            filename=$(basename "$apk_file")
-            echo "上传文件: $filename"
-            
-            curl -L \
-              -X POST \
-              -H "Accept: application/vnd.github+json" \
-              -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-              -H "Content-Type: application/octet-stream" \
-              "https://uploads.github.com/repos/${{ github.repository }}/releases/${{ steps.create_release.outputs.id }}/assets?name=$filename" \
-              --data-binary "@$apk_file"
-          fi
-        done
+        make_latest: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Switch to latest branch and update version
       if: steps.version_check.outputs.needs_update == 'true'
