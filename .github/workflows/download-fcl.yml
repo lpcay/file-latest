@@ -25,10 +25,23 @@ jobs:
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
         fetch-depth: 0
+        lfs: true
 
-    - name: Setup directories
+    - name: Setup Git LFS and directories
       run: |
+        git lfs install
         mkdir -p fcl
+        
+        # 配置Git LFS跟踪APK文件
+        echo "fcl/*.apk filter=lfs diff=lfs merge=lfs -text" > .gitattributes
+        git add .gitattributes
+        
+        # 如果.gitattributes有变更则提交
+        if ! git diff --staged --quiet; then
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git commit -m "Add Git LFS configuration for APK files"
+        fi
         
     - name: Get latest FCL release info
       id: release
@@ -151,6 +164,9 @@ jobs:
     - name: Commit and push changes
       if: steps.version_check.outputs.needs_update == 'true'
       run: |
+        # 添加所有文件到Git LFS
+        git lfs track "fcl/*.apk"
+        git add .gitattributes
         git add fcl/
         
         # 检查是否有变更需要提交
@@ -158,6 +174,7 @@ jobs:
           echo "没有文件变更，跳过提交"
         else
           git commit -m "Update FCL to version ${{ steps.release.outputs.latest_version }}"
+          git lfs push origin latest
           git push origin latest
           echo "已推送FCL版本 ${{ steps.release.outputs.latest_version }} 到latest分支"
         fi
