@@ -2,8 +2,8 @@ name: Download FCL Latest Release
 
 on:
   schedule:
-    # 每5分钟运行一次
-    - cron: '*/5 * * * *'
+    # 每10分钟运行一次（GitHub Actions实际最小有效间隔）
+    - cron: '*/10 * * * *'
   workflow_dispatch:
     # 允许手动触发
   push:
@@ -29,6 +29,8 @@ jobs:
 
     - name: Setup directories
       run: |
+        echo "🕐 工作流开始时间: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+        echo "🔄 触发方式: ${{ github.event_name }}"
         mkdir -p fcl
         
     - name: Get latest FCL release info
