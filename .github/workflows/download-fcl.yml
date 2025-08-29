@@ -112,8 +112,11 @@ jobs:
           fi
         }
         
+        # 获取所有APK下载链接并保存到临时文件
+        echo '${{ steps.release.outputs.release_data }}' | jq -r '.assets[] | select(.name | test("^FCL-release.*\\.apk$")) | .browser_download_url' > /tmp/apk_urls.txt
+        
         # 处理每个APK资源
-        echo '${{ steps.release.outputs.release_data }}' | jq -r '.assets[] | select(.name | test("^FCL-release.*\\.apk$")) | .browser_download_url' | while read url; do
+        while IFS= read -r url; do
           # 提取原始文件名
           original_name=$(basename "$url")
           
@@ -140,7 +143,10 @@ jobs:
             echo "错误: 文件下载失败 - $url"
             exit 1
           fi
-        done
+        done < /tmp/apk_urls.txt
+        
+        # 清理临时文件
+        rm -f /tmp/apk_urls.txt
 
     - name: Update version file
       if: steps.version_check.outputs.needs_update == 'true'
