@@ -176,27 +176,35 @@ jobs:
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
 
+    - name: Generate release body with timestamp
+      if: steps.version_check.outputs.needs_update == 'true'
+      id: release_body
+      run: |
+        current_time=$(date '+%Y-%m-%d %H:%M:%S %Z')
+        echo "body<<EOF" >> $GITHUB_OUTPUT
+        echo "FCL (FoldCraftLauncher) 版本 ${{ steps.release.outputs.latest_version }}" >> $GITHUB_OUTPUT
+        echo "" >> $GITHUB_OUTPUT
+        echo "自动从官方仓库同步的最新版本。" >> $GITHUB_OUTPUT
+        echo "" >> $GITHUB_OUTPUT
+        echo "**同步信息：**" >> $GITHUB_OUTPUT
+        echo "- 🕐 同步时间: ${current_time}" >> $GITHUB_OUTPUT
+        echo "- 📦 来源: [FCL-Team/FoldCraftLauncher](https://github.com/FCL-Team/FoldCraftLauncher)" >> $GITHUB_OUTPUT
+        echo "" >> $GITHUB_OUTPUT
+        echo "**文件用途描述：**" >> $GITHUB_OUTPUT
+        echo "- FCL-release-all.apk - 通用版本" >> $GITHUB_OUTPUT
+        echo "- FCL-release-arm64-v8a.apk - ARM64架构" >> $GITHUB_OUTPUT
+        echo "- FCL-release-armeabi-v7a.apk - ARM32架构" >> $GITHUB_OUTPUT
+        echo "- FCL-release-x86.apk - x86架构" >> $GITHUB_OUTPUT
+        echo "- FCL-release-x86_64.apk - x86_64架构" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
     - name: Create/Update GitHub Release
       if: steps.version_check.outputs.needs_update == 'true'
       uses: softprops/action-gh-release@v1
       with:
         tag_name: FCL
         name: ${{ steps.release.outputs.latest_version }}
-        body: |
-          FCL (FoldCraftLauncher) 版本 ${{ steps.release.outputs.latest_version }}
-          
-          自动从官方仓库同步的最新版本。
-          
-          **同步信息：**
-          - 🕐 同步时间: $(date '+%Y-%m-%d %H:%M:%S %Z')
-          - 📦 来源: [FCL-Team/FoldCraftLauncher](https://github.com/FCL-Team/FoldCraftLauncher)
-          
-          **文件用途描述：**
-          - FCL-release-all.apk - 通用版本
-          - FCL-release-arm64-v8a.apk - ARM64架构
-          - FCL-release-armeabi-v7a.apk - ARM32架构  
-          - FCL-release-x86.apk - x86架构
-          - FCL-release-x86_64.apk - x86_64架构
+        body: ${{ steps.release_body.outputs.body }}
         files: |
           fcl/*.apk
         draft: false
