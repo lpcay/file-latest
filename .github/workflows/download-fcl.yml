@@ -143,8 +143,8 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        tag_name: ${{ steps.release.outputs.latest_version }}
-        release_name: FCL
+        tag_name: FCL
+        release_name: ${{ steps.release.outputs.latest_version }}
         body: |
           FCL (FoldCraftLauncher) 版本 ${{ steps.release.outputs.latest_version }}
           
@@ -215,7 +215,7 @@ jobs:
           echo "📦 发布的文件:"
           ls -la fcl/*.apk 2>/dev/null || echo "未找到APK文件"
           
-          echo "🔗 Release链接: https://github.com/${{ github.repository }}/releases/tag/${{ steps.release.outputs.latest_version }}"
+          echo "🔗 Release链接: https://github.com/${{ github.repository }}/releases/tag/FCL"
         else
           echo "ℹ️ 当前已是最新版本，无需更新"
         fi
