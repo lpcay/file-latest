@@ -1,0 +1,172 @@
+name: Download FCL Latest Release
+
+on:
+  schedule:
+    # 每天UTC时间00:00运行（北京时间08:00）
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+    # 允许手动触发
+
+jobs:
+  download-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        fetch-depth: 0
+
+    - name: Setup directories
+      run: |
+        mkdir -p fcl
+        
+    - name: Get latest FCL release info
+      id: release
+      run: |
+        echo "获取最新发布信息..."
+        release_data=$(curl --silent "https://api.github.com/repos/FCL-Team/FoldCraftLauncher/releases/latest")
+        latest_version=$(echo "$release_data" | jq -r '.tag_name')
+        echo "latest_version=$latest_version" >> $GITHUB_OUTPUT
+        echo "release_data<<EOF" >> $GITHUB_OUTPUT
+        echo "$release_data" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+        echo "检测到最新版本: $latest_version"
+
+    - name: Check if version needs update
+      id: version_check
+      run: |
+        VERSION_FILE="fcl/releases.txt"
+        latest_version="${{ steps.release.outputs.latest_version }}"
+        
+        if [ -f "$VERSION_FILE" ]; then
+          current_version=$(cat "$VERSION_FILE")
+          if [ "$current_version" == "$latest_version" ]; then
+            echo "当前已是最新版本 ($latest_version)，跳过下载"
+            echo "needs_update=false" >> $GITHUB_OUTPUT
+          else
+            echo "检测到新版本: $latest_version (当前版本: $current_version)"
+            echo "needs_update=true" >> $GITHUB_OUTPUT
+          fi
+        else
+          echo "未找到版本记录，开始下载最新版本 ($latest_version)"
+          echo "needs_update=true" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Clean old files
+      if: steps.version_check.outputs.needs_update == 'true'
+      run: |
+        echo "清理旧版本文件..."
+        rm -f fcl/FCL-release-*.apk
+
+    - name: Download APK files
+      if: steps.version_check.outputs.needs_update == 'true'
+      run: |
+        echo "开始下载APK文件到目录: fcl/"
+        
+        # 文件名修复函数
+        fix_filename() {
+          local original_name="$1"
+          
+          # 处理所有架构类型
+          if [[ "$original_name" =~ FCL-release-[0-9.]+-(.+)\.apk$ ]]; then
+            local arch_part="${BASH_REMATCH[1]}"
+            echo "FCL-release-${arch_part}.apk"
+          # 处理all架构的特殊情况
+          elif [[ "$original_name" =~ FCL-release-[0-9.]+\.apk$ ]]; then
+            echo "FCL-release-all.apk"
+          # 处理无架构标识的文件名
+          elif [[ "$original_name" =~ FCL-release-[0-9.]+(\.apk)$ ]]; then
+            echo "FCL-release-all.apk"
+          else
+            # 如果都不匹配，返回原始名称
+            echo "$original_name"
+          fi
+        }
+        
+        # 处理每个APK资源
+        echo '${{ steps.release.outputs.release_data }}' | jq -r '.assets[] | select(.name | test("^FCL-release.*\\.apk$")) | .browser_download_url' | while read url; do
+          # 提取原始文件名
+          original_name=$(basename "$url")
+          
+          # 使用修复后的文件名处理函数
+          new_name=$(fix_filename "$original_name")
+          target_path="fcl/$new_name"
+          
+          echo "下载: $original_name → 保存为: $target_path"
+          
+          # 下载文件
+          wget -q --show-progress -c "$url" -O "$target_path"
+          
+          # 检查下载状态
+          if [ $? -eq 0 ]; then
+            if [ -f "$target_path" ]; then
+              file_size=$(du -h "$target_path" | cut -f1)
+              echo "下载完成! 文件大小: $file_size"
+              echo "--------------------------------------------------"
+            else
+              echo "错误: 文件下载后不存在"
+              exit 1
+            fi
+          else
+            echo "错误: 文件下载失败 - $url"
+            exit 1
+          fi
+        done
+
+    - name: Update version file
+      if: steps.version_check.outputs.needs_update == 'true'
+      run: |
+        echo "${{ steps.release.outputs.latest_version }}" > fcl/releases.txt
+        echo "已更新版本记录: fcl/releases.txt"
+
+    - name: Configure Git
+      if: steps.version_check.outputs.needs_update == 'true'
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+
+    - name: Switch to latest branch
+      if: steps.version_check.outputs.needs_update == 'true'
+      run: |
+        # 检查latest分支是否存在
+        if git show-ref --verify --quiet refs/remotes/origin/latest; then
+          echo "切换到existing latest分支"
+          git checkout latest
+          git pull origin latest
+        else
+          echo "创建新的latest分支"
+          git checkout -b latest
+        fi
+
+    - name: Commit and push changes
+      if: steps.version_check.outputs.needs_update == 'true'
+      run: |
+        git add fcl/
+        
+        # 检查是否有变更需要提交
+        if git diff --staged --quiet; then
+          echo "没有文件变更，跳过提交"
+        else
+          git commit -m "Update FCL to version ${{ steps.release.outputs.latest_version }}"
+          git push origin latest
+          echo "已推送FCL版本 ${{ steps.release.outputs.latest_version }} 到latest分支"
+        fi
+
+    - name: Summary
+      run: |
+        if [ "${{ steps.version_check.outputs.needs_update }}" == "true" ]; then
+          echo "✅ 成功下载并推送FCL版本 ${{ steps.release.outputs.latest_version }}"
+          echo "📁 文件已保存到latest分支的fcl文件夹中"
+          
+          # 显示下载的文件列表
+          echo "📦 下载的文件:"
+          ls -la fcl/*.apk 2>/dev/null || echo "未找到APK文件"
+          
+          if [ -f "fcl/releases.txt" ]; then
+            echo "📋 当前版本: $(cat fcl/releases.txt)"
+          fi
+        else
+          echo "ℹ️ 当前已是最新版本，无需更新"
+        fi
