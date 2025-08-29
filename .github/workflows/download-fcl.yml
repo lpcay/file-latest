@@ -187,7 +187,11 @@ jobs:
           
           自动从官方仓库同步的最新版本。
           
-          **下载链接：**
+          **同步信息：**
+          - 🕐 同步时间: $(date '+%Y-%m-%d %H:%M:%S %Z')
+          - 📦 来源: [FCL-Team/FoldCraftLauncher](https://github.com/FCL-Team/FoldCraftLauncher)
+          
+          **文件用途描述：**
           - FCL-release-all.apk - 通用版本
           - FCL-release-arm64-v8a.apk - ARM64架构
           - FCL-release-armeabi-v7a.apk - ARM32架构  
