@@ -136,6 +136,28 @@ jobs:
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
 
+    - name: Delete existing FCL release
+      if: steps.version_check.outputs.needs_update == 'true'
+      run: |
+        # 尝试删除现有的FCL release和tag
+        echo "检查并删除现有的FCL release..."
+        
+        # 获取release ID
+        release_id=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+          "https://api.github.com/repos/${{ github.repository }}/releases/tags/FCL" | \
+          jq -r '.id // empty')
+        
+        if [ ! -z "$release_id" ] && [ "$release_id" != "null" ]; then
+          echo "删除现有release (ID: $release_id)"
+          curl -X DELETE -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/$release_id"
+        fi
+        
+        # 删除tag
+        echo "删除现有tag FCL"
+        curl -X DELETE -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+          "https://api.github.com/repos/${{ github.repository }}/git/refs/tags/FCL" || true
+
     - name: Create GitHub Release
       if: steps.version_check.outputs.needs_update == 'true'
       id: create_release
