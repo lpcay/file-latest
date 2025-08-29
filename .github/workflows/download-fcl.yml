@@ -6,6 +6,10 @@ on:
     - cron: '*/5 * * * *'
   workflow_dispatch:
     # 允许手动触发
+  push:
+    branches: [ main, master ]
+    paths:
+      - '.github/workflows/download-fcl.yml'
 
 jobs:
   download-and-deploy:
