@@ -27,21 +27,9 @@ jobs:
         fetch-depth: 0
         lfs: true
 
-    - name: Setup Git LFS and directories
+    - name: Setup directories
       run: |
-        git lfs install
         mkdir -p fcl
-        
-        # 配置Git LFS跟踪APK文件
-        echo "fcl/*.apk filter=lfs diff=lfs merge=lfs -text" > .gitattributes
-        git add .gitattributes
-        
-        # 如果.gitattributes有变更则提交
-        if ! git diff --staged --quiet; then
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git commit -m "Add Git LFS configuration for APK files"
-        fi
         
     - name: Get latest FCL release info
       id: release
@@ -148,7 +136,49 @@ jobs:
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
 
-    - name: Switch to latest branch
+    - name: Create GitHub Release
+      if: steps.version_check.outputs.needs_update == 'true'
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ steps.release.outputs.latest_version }}
+        release_name: FCL
+        body: |
+          FCL (FoldCraftLauncher) 版本 ${{ steps.release.outputs.latest_version }}
+          
+          自动从官方仓库同步的最新版本。
+          
+          **下载链接：**
+          - FCL-release-all.apk - 通用版本
+          - FCL-release-arm64-v8a.apk - ARM64架构
+          - FCL-release-armeabi-v7a.apk - ARM32架构  
+          - FCL-release-x86.apk - x86架构
+          - FCL-release-x86_64.apk - x86_64架构
+        draft: false
+        prerelease: false
+
+    - name: Upload APK files to Release
+      if: steps.version_check.outputs.needs_update == 'true'
+      run: |
+        # 上传所有APK文件到Release
+        for apk_file in fcl/*.apk; do
+          if [ -f "$apk_file" ]; then
+            filename=$(basename "$apk_file")
+            echo "上传文件: $filename"
+            
+            curl -L \
+              -X POST \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Content-Type: application/octet-stream" \
+              "https://uploads.github.com/repos/${{ github.repository }}/releases/${{ steps.create_release.outputs.id }}/assets?name=$filename" \
+              --data-binary "@$apk_file"
+          fi
+        done
+
+    - name: Switch to latest branch and update version
       if: steps.version_check.outputs.needs_update == 'true'
       run: |
         # 检查latest分支是否存在
@@ -160,38 +190,32 @@ jobs:
           echo "创建新的latest分支"
           git checkout -b latest
         fi
-
-    - name: Commit and push changes
-      if: steps.version_check.outputs.needs_update == 'true'
-      run: |
-        # 添加所有文件到Git LFS
-        git lfs track "fcl/*.apk"
-        git add .gitattributes
-        git add fcl/
+        
+        # 只保存版本记录文件到latest分支
+        mkdir -p fcl
+        echo "${{ steps.release.outputs.latest_version }}" > fcl/releases.txt
+        
+        git add fcl/releases.txt
         
         # 检查是否有变更需要提交
-        if git diff --staged --quiet; then
-          echo "没有文件变更，跳过提交"
-        else
-          git commit -m "Update FCL to version ${{ steps.release.outputs.latest_version }}"
-          git lfs push origin latest
+        if ! git diff --staged --quiet; then
+          git commit -m "Update version to ${{ steps.release.outputs.latest_version }}"
           git push origin latest
-          echo "已推送FCL版本 ${{ steps.release.outputs.latest_version }} 到latest分支"
+          echo "已更新latest分支的版本记录"
         fi
 
     - name: Summary
       run: |
         if [ "${{ steps.version_check.outputs.needs_update }}" == "true" ]; then
-          echo "✅ 成功下载并推送FCL版本 ${{ steps.release.outputs.latest_version }}"
-          echo "📁 文件已保存到latest分支的fcl文件夹中"
+          echo "✅ 成功发布FCL版本 ${{ steps.release.outputs.latest_version }}"
+          echo "🚀 APK文件已上传到GitHub Release"
+          echo "📋 版本记录已更新到latest分支"
           
           # 显示下载的文件列表
-          echo "📦 下载的文件:"
+          echo "📦 发布的文件:"
           ls -la fcl/*.apk 2>/dev/null || echo "未找到APK文件"
           
-          if [ -f "fcl/releases.txt" ]; then
-            echo "📋 当前版本: $(cat fcl/releases.txt)"
-          fi
+          echo "🔗 Release链接: https://github.com/${{ github.repository }}/releases/tag/${{ steps.release.outputs.latest_version }}"
         else
           echo "ℹ️ 当前已是最新版本，无需更新"
         fi
