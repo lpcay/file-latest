@@ -115,8 +115,15 @@ jobs:
         # 获取所有APK下载链接并保存到临时文件
         echo '${{ steps.release.outputs.release_data }}' | jq -r '.assets[] | select(.name | test("^FCL-release.*\\.apk$")) | .browser_download_url' > /tmp/apk_urls.txt
         
+        echo "找到的下载链接:"
+        cat /tmp/apk_urls.txt
+        
         # 处理每个APK资源
         while IFS= read -r url; do
+          if [ -z "$url" ]; then
+            continue
+          fi
+          
           # 提取原始文件名
           original_name=$(basename "$url")
           
@@ -125,25 +132,34 @@ jobs:
           target_path="fcl/$new_name"
           
           echo "下载: $original_name → 保存为: $target_path"
+          echo "URL: $url"
           
-          # 下载文件
-          wget -q --show-progress -c "$url" -O "$target_path"
+          # 确保目录存在
+          mkdir -p "$(dirname "$target_path")"
           
-          # 检查下载状态
-          if [ $? -eq 0 ]; then
-            if [ -f "$target_path" ]; then
+          # 下载文件，显示详细输出
+          echo "开始下载..."
+          if wget --progress=bar:force -c "$url" -O "$target_path" 2>&1; then
+            # 检查文件是否存在且不为空
+            if [ -f "$target_path" ] && [ -s "$target_path" ]; then
               file_size=$(du -h "$target_path" | cut -f1)
-              echo "下载完成! 文件大小: $file_size"
+              echo "✅ 下载完成! 文件大小: $file_size"
+              ls -la "$target_path"
               echo "--------------------------------------------------"
             else
-              echo "错误: 文件下载后不存在"
+              echo "❌ 错误: 文件下载后不存在或为空"
+              ls -la fcl/ || echo "fcl目录不存在"
               exit 1
             fi
           else
-            echo "错误: 文件下载失败 - $url"
+            echo "❌ 错误: wget命令失败 - $url"
             exit 1
           fi
         done < /tmp/apk_urls.txt
+        
+        # 显示最终下载结果
+        echo "所有下载完成，文件列表:"
+        ls -la fcl/
         
         # 清理临时文件
         rm -f /tmp/apk_urls.txt
