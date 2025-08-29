@@ -164,6 +164,12 @@ jobs:
     - name: Switch to latest branch and update version
       if: steps.version_check.outputs.needs_update == 'true'
       run: |
+        # 暂存当前版本信息
+        current_version="${{ steps.release.outputs.latest_version }}"
+        
+        # 清理工作目录中可能冲突的文件
+        rm -f fcl/releases.txt
+        
         # 检查latest分支是否存在
         if git show-ref --verify --quiet refs/remotes/origin/latest; then
           echo "切换到existing latest分支"
@@ -176,13 +182,13 @@ jobs:
         
         # 只保存版本记录文件到latest分支
         mkdir -p fcl
-        echo "${{ steps.release.outputs.latest_version }}" > fcl/releases.txt
+        echo "$current_version" > fcl/releases.txt
         
         git add fcl/releases.txt
         
         # 检查是否有变更需要提交
         if ! git diff --staged --quiet; then
-          git commit -m "Update version to ${{ steps.release.outputs.latest_version }}"
+          git commit -m "Update version to $current_version"
           git push origin latest
           echo "已更新latest分支的版本记录"
         fi
