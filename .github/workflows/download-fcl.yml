@@ -3,7 +3,7 @@ name: Download FCL Latest Release
 on:
   schedule:
     # 每10分钟运行一次（GitHub Actions实际最小有效间隔）
-    - cron: '*/20 * * * *'
+    - cron: '*/30 * * * *'
   workflow_dispatch:
     # 允许手动触发
   push:
@@ -267,4 +267,5 @@ jobs:
           echo "🔗 Release链接: https://github.com/${{ github.repository }}/releases/tag/FCL"
         else
           echo "ℹ️ 当前已是最新版本，无需更新"
+
         fi
