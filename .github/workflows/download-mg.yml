@@ -25,7 +25,6 @@ jobs:
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
         fetch-depth: 0
-        lfs: false
 
     - name: Setup directories
       run: |
@@ -39,101 +38,79 @@ jobs:
         echo "获取 MobileGlues 最新发布信息..."
         release_data=$(curl --silent "https://api.github.com/repos/MobileGL-Dev/MobileGlues-release/releases/latest")
         latest_tag=$(echo "$release_data" | jq -r '.tag_name')
-        latest_version=$(echo "$latest_tag" | sed 's/^V//')  # 去掉前缀 V，如 V1.3.3 → 1.3.3
+        if [ "$latest_tag" = "null" ] || [ -z "$latest_tag" ]; then
+          echo "❌ 无法获取最新版本标签"
+          exit 1
+        fi
         echo "latest_tag=$latest_tag" >> $GITHUB_OUTPUT
-        echo "latest_version=$latest_version" >> $GITHUB_OUTPUT
         echo "release_data<<EOF" >> $GITHUB_OUTPUT
         echo "$release_data" >> $GITHUB_OUTPUT
         echo "EOF" >> $GITHUB_OUTPUT
-        echo "检测到最新版本标签: $latest_tag (版本号: $latest_version)"
+        echo "检测到最新版本标签: $latest_tag"
 
     - name: Check if version needs update
       id: version_check
       run: |
         latest_tag="${{ steps.release.outputs.latest_tag }}"
-        latest_version="${{ steps.release.outputs.latest_version }}"
 
-        if [ "$latest_tag" = "null" ] || [ -z "$latest_tag" ]; then
-          echo "警告: 无法获取有效的版本标签，跳过下载"
-          echo "needs_update=false" >> $GITHUB_OUTPUT
-          exit 0
-        fi
+        # 初始化 needs_update 为 true（假设需要更新）
+        needs_update="true"
 
-        # 检查 latest-mg 分支是否存在
-        if git show-ref --verify --quiet refs/remotes/origin/latest-mg; then
-          echo "切换到 latest-mg 分支检查版本..."
-          git checkout latest-mg
-          git pull origin latest-mg
+        # 检查 latest 分支是否存在
+        if git show-ref --verify --quiet refs/remotes/origin/latest; then
+          echo "切换到 latest 分支读取当前版本..."
+          git checkout latest
+          git pull origin latest
 
           VERSION_FILE="mg/version.txt"
           if [ -f "$VERSION_FILE" ]; then
             current_tag=$(cat "$VERSION_FILE")
-            echo "读取到当前版本标签: $current_tag"
-            echo "最新版本标签: $latest_tag"
-
+            echo "当前已同步版本: $current_tag"
             if [ "$current_tag" == "$latest_tag" ]; then
-              echo "当前已是最新版本 ($latest_tag)，跳过下载"
-              echo "needs_update=false" >> $GITHUB_OUTPUT
+              echo "已是最新版本，无需更新"
+              needs_update="false"
             else
               echo "检测到新版本: $latest_tag (当前: $current_tag)"
-              echo "needs_update=true" >> $GITHUB_OUTPUT
             fi
           else
-            echo "latest-mg 分支存在但未找到版本记录文件"
-            echo "needs_update=true" >> $GITHUB_OUTPUT
+            echo "latest 分支中未找到 mg/version.txt，视为需要更新"
           fi
 
-          # 切回主分支
+          # 切回默认分支（main/master）
           git checkout ${{ github.ref_name }}
         else
-          echo "latest-mg 分支不存在，开始下载最新版本 ($latest_tag)"
-          echo "needs_update=true" >> $GITHUB_OUTPUT
+          echo "latest 分支不存在，视为首次运行，需要更新"
         fi
 
-    - name: Clean old files
-      if: steps.version_check.outputs.needs_update == 'true'
-      run: |
-        echo "清理旧版本文件..."
-        rm -f mg/MG-release.apk
+        echo "needs_update=$needs_update" >> $GITHUB_OUTPUT
 
-    - name: Download MG APK
+    - name: Clean and Download MG APK
       if: steps.version_check.outputs.needs_update == 'true'
       run: |
         echo "开始下载 MobileGlues APK..."
 
-        # 提取 APK 下载 URL（假设只有一个 APK）
+        # 提取 APK URL（取第一个 .apk）
         apk_url=$(echo '${{ steps.release.outputs.release_data }}' | jq -r '.assets[] | select(.name | endswith(".apk")) | .browser_download_url' | head -n1)
-
         if [ -z "$apk_url" ]; then
-          echo "❌ 错误: 未找到 APK 文件"
+          echo "❌ 未找到 APK 文件"
           exit 1
         fi
 
         echo "APK 下载地址: $apk_url"
-        target_path="mg/MG-release.apk"
+        target="mg/MG-release.apk"
+        mkdir -p "$(dirname "$target")"
 
-        mkdir -p "$(dirname "$target_path")"
-        echo "正在下载并保存为: $target_path"
-
-        if wget --progress=bar:force -c "$apk_url" -O "$target_path" 2>&1; then
-          if [ -f "$target_path" ] && [ -s "$target_path" ]; then
-            file_size=$(du -h "$target_path" | cut -f1)
-            echo "✅ 下载完成! 文件大小: $file_size"
-            ls -la "$target_path"
+        if wget --progress=bar:force -c "$apk_url" -O "$target" 2>&1; then
+          if [ -s "$target" ]; then
+            echo "✅ APK 下载成功，大小: $(du -h "$target" | cut -f1)"
           else
-            echo "❌ 错误: 文件下载后为空或不存在"
+            echo "❌ APK 文件为空"
             exit 1
           fi
         else
           echo "❌ wget 下载失败"
           exit 1
         fi
-
-    - name: Update version file
-      if: steps.version_check.outputs.needs_update == 'true'
-      run: |
-        echo "${{ steps.release.outputs.latest_tag }}" > mg/version.txt
-        echo "已更新版本记录: mg/version.txt"
 
     - name: Configure Git
       if: steps.version_check.outputs.needs_update == 'true'
@@ -155,7 +132,7 @@ jobs:
         echo "**同步信息：**" >> $GITHUB_OUTPUT
         echo "- 🕐 同步时间: ${current_time}" >> $GITHUB_OUTPUT
         echo "- 📦 来源: [MobileGL-Dev/MobileGlues-release](https://github.com/MobileGL-Dev/MobileGlues-release)" >> $GITHUB_OUTPUT
-        echo "- 📄 文件名: MG-release.apk（通用版本）" >> $GITHUB_OUTPUT
+        echo "- 📄 文件名: MG-release.apk" >> $GITHUB_OUTPUT
         echo "EOF" >> $GITHUB_OUTPUT
 
     - name: Create/Update GitHub Release for MG
@@ -172,40 +149,36 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Switch to latest-mg branch and update version record
+    - name: Update version record in latest branch
       if: steps.version_check.outputs.needs_update == 'true'
       run: |
-        current_tag="${{ steps.release.outputs.latest_tag }}"
+        latest_tag="${{ steps.release.outputs.latest_tag }}"
 
-        # 清理可能冲突的文件
-        rm -f mg/version.txt
-
-        if git show-ref --verify --quiet refs/remotes/origin/latest-mg; then
-          echo "切换到 existing latest-mg 分支"
-          git checkout latest-mg
-          git pull origin latest-mg
+        # 切换或创建 latest 分支
+        if git show-ref --verify --quiet refs/remotes/origin/latest; then
+          git checkout latest
+          git pull origin latest
         else
-          echo "创建新的 latest-mg 分支"
-          git checkout -b latest-mg
+          git checkout --orphan latest
+          git rm -rf .  # 清空历史（仅保留干净分支）
         fi
 
+        # 写入版本文件到 mg/ 目录
         mkdir -p mg
-        echo "$current_tag" > mg/version.txt
-        git add mg/version.txt
+        echo "$latest_tag" > mg/version.txt
 
-        if ! git diff --staged --quiet; then
-          git commit -m "Update MG version to $current_tag"
-          git push origin latest-mg
-          echo "✅ 已更新 latest-mg 分支的版本记录"
-        fi
+        git add mg/version.txt
+        git commit -m "Update MG version to $latest_tag"
+        git push origin latest --force  # 确保推送成功（首次可能需 --set-upstream）
+
+        echo "✅ 已更新 latest 分支中的 mg/version.txt"
 
     - name: Summary
       run: |
         if [ "${{ steps.version_check.outputs.needs_update }}" == "true" ]; then
-          echo "✅ 成功发布 MobileGlues 版本 ${{ steps.release.outputs.latest_tag }}"
-          echo "🚀 APK 文件已上传到 GitHub Release (tag: MG)"
-          echo "📋 版本记录已更新到 latest-mg 分支"
-          echo "📦 文件: mg/MG-release.apk"
+          echo "✅ 成功同步并发布 MobileGlues 版本 ${{ steps.release.outputs.latest_tag }}"
+          echo "🚀 APK 已上传至 Release (tag: MG)"
+          echo "📋 版本记录已写入 latest 分支的 mg/version.txt"
           echo "🔗 Release 链接: https://github.com/${{ github.repository }}/releases/tag/MG"
         else
           echo "ℹ️ MobileGlues 当前已是最新版本，无需更新"
